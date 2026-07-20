@@ -20,6 +20,16 @@ class VideosManager(QObject):
 
     # ── Internal helpers ───────────────────────────────────────────────────────
 
+    def _related_dirs(self) -> list:
+        """Directories that store per-video data files (used by rename/delete)."""
+        return [
+            os.path.join(self._project_path, "data", "pixel_coordinates"),
+            os.path.join(self._project_path, "data", "bboxes"),
+            os.path.join(self._project_path, "data", "homography"),
+            os.path.join(self._project_path, "metadata"),
+            os.path.join(self._project_path, "videos"),
+        ]
+
     def _get_duration(self, path: str) -> str:
         if path in self._duration_cache:
             return self._duration_cache[path]
@@ -91,24 +101,39 @@ class VideosManager(QObject):
     def activeVideoPath(self):
         if not self._active_video or not self._project_path:
             return ""
-        return os.path.join(self._project_path, self._active_video).replace("\\", "/")
+        root_path = os.path.join(self._project_path, self._active_video)
+        if os.path.isfile(root_path):
+            return root_path.replace("\\", "/")
+        videos_path = os.path.join(self._project_path, "videos", self._active_video)
+        if os.path.isfile(videos_path):
+            return videos_path.replace("\\", "/")
+        return root_path.replace("\\", "/")
 
     @Property(list, notify=videosChanged)
     def videos(self):
         if not self._project_path or not os.path.isdir(self._project_path):
             return []
         result = []
-        for name in sorted(os.listdir(self._project_path)):
-            if os.path.splitext(name)[1].lower() not in self.VIDEO_EXTS:
-                continue
-            full = os.path.join(self._project_path, name)
-            result.append({
-                "name":      name,
-                "path":      full.replace("\\", "/"),
-                "duration":  self._get_duration(full),
-                "isActive":  name == self._active_video,
-                "thumbnail": self._get_thumbnail(full, name),
-            })
+        dirs_to_scan = [self._project_path]
+        videos_subdir = os.path.join(self._project_path, "videos")
+        if os.path.isdir(videos_subdir):
+            dirs_to_scan.append(videos_subdir)
+        seen = set()
+        for scan_dir in dirs_to_scan:
+            for name in sorted(os.listdir(scan_dir)):
+                if os.path.splitext(name)[1].lower() not in self.VIDEO_EXTS:
+                    continue
+                full = os.path.join(scan_dir, name)
+                if full in seen:
+                    continue
+                seen.add(full)
+                result.append({
+                    "name":      name,
+                    "path":      full.replace("\\", "/"),
+                    "duration":  self._get_duration(full),
+                    "isActive":  name == self._active_video,
+                    "thumbnail": self._get_thumbnail(full, name),
+                })
         return result
 
     @Property(str, notify=activeVideoChanged)
@@ -138,15 +163,42 @@ class VideosManager(QObject):
         new_name = new_name.strip()
         if not new_name or old_name == new_name:
             return False
-        # Preserve extension if user omitted it
         if not os.path.splitext(new_name)[1]:
             new_name += os.path.splitext(old_name)[1]
+
         old_path = os.path.join(self._project_path, old_name)
-        new_path = os.path.join(self._project_path, new_name)
-        if not os.path.exists(old_path) or os.path.exists(new_path):
+        if not os.path.exists(old_path):
+            old_path = os.path.join(self._project_path, "videos", old_name)
+        if not os.path.exists(old_path):
             return False
+
+        new_path = os.path.join(os.path.dirname(old_path), new_name)
+        if os.path.exists(new_path):
+            return False
+
         os.rename(old_path, new_path)
-        # Evict cache entries for the old path
+
+        old_stem = os.path.splitext(old_name)[0]
+        new_stem = os.path.splitext(new_name)[0]
+        print(f"[renameVideo] old_stem={old_stem!r}  new_stem={new_stem!r}")
+
+        for d in self._related_dirs():
+            if not os.path.isdir(d):
+                print(f"[renameVideo]   skip (no dir): {d}")
+                continue
+            print(f"[renameVideo]   scanning: {d}")
+            for fname in os.listdir(d):
+                if fname.startswith(old_stem):
+                    src = os.path.join(d, fname)
+                    dst = os.path.join(d, new_stem + fname[len(old_stem):])
+                    if not os.path.exists(dst):
+                        print(f"[renameVideo]     rename {fname!r} -> {os.path.basename(dst)!r}")
+                        os.rename(src, dst)
+                    else:
+                        print(f"[renameVideo]     skip (dst exists): {fname!r}")
+                else:
+                    print(f"[renameVideo]     no match: {fname!r}")
+
         self._duration_cache.pop(old_path, None)
         self._thumbnail_cache.pop(old_path, None)
         if self._active_video == old_name:
@@ -157,17 +209,37 @@ class VideosManager(QObject):
 
     @Slot(str)
     def deleteVideo(self, name: str):
+        # Encontra o vídeo (raiz ou subpasta videos/)
         path = os.path.join(self._project_path, name)
         if not os.path.isfile(path):
+            path = os.path.join(self._project_path, "videos", name)
+        if not os.path.isfile(path):
             return
+
         os.remove(path)
-        # Remove cached thumbnail
+
+        # Remove thumbnail
         thumb = os.path.join(
             self._project_path, ".thumbnails",
             os.path.splitext(name)[0] + ".jpg"
         )
         if os.path.exists(thumb):
             os.remove(thumb)
+
+        # Remove todos os arquivos relacionados (CSV, bboxes, homography, metadata)
+        stem = os.path.splitext(name)[0]
+        # base sem _tracked para cobrir arquivos gerados pelo tracker
+        base = stem[:-8] if stem.endswith("_tracked") else stem
+
+        for d in self._related_dirs():
+            if not os.path.isdir(d):
+                continue
+            for fname in os.listdir(d):
+                if fname.startswith(base) or fname.startswith(stem):
+                    fpath = os.path.join(d, fname)
+                    if os.path.isfile(fpath):
+                        os.remove(fpath)
+
         self._duration_cache.pop(path, None)
         self._thumbnail_cache.pop(path, None)
         if self._active_video == name:

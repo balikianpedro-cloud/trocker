@@ -4,4 +4,7 @@ __pycache__/
 test.py
 .agent/
 projects/
+.claude/
+CLAUDE.md
 models/
+trockerv/

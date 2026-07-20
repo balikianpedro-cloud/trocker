@@ -11,10 +11,60 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QSlider, QFileDialog, QListWidget, QListWidgetItem, QDialog,
     QDialogButtonBox, QCheckBox, QGraphicsView, QGraphicsScene,
-    QMessageBox, QProgressBar, QApplication,
+    QGraphicsPolygonItem, QMessageBox, QProgressBar, QApplication,
 )
-from PySide6.QtCore import Qt, QRect, QPoint, Signal
-from PySide6.QtGui import QPixmap, QImage, QPainter, QColor, QPen
+from PySide6.QtCore import Qt, QRect, QPoint, QPointF, Signal
+from PySide6.QtGui import QPixmap, QImage, QPainter, QColor, QPen, QPolygonF
+
+
+# =============================================================================
+# INTERACTIVE FRAME VIEW (zoom + pan reutilizável)
+# =============================================================================
+
+class InteractiveFrameView(QGraphicsView):
+    """
+    QGraphicsView com zoom via scroll do mouse e pan via middle-click + drag.
+    Reutilizável em qualquer janela que exibe um frame para seleção.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._pan_active = False
+        self._pan_start  = None
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+
+    def wheelEvent(self, event):
+        factor = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
+        self.scale(factor, factor)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._pan_active = True
+            self._pan_start  = event.pos()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._pan_active and self._pan_start is not None:
+            delta = event.pos() - self._pan_start
+            self._pan_start = event.pos()
+            self.horizontalScrollBar().setValue(
+                self.horizontalScrollBar().value() - delta.x())
+            self.verticalScrollBar().setValue(
+                self.verticalScrollBar().value() - delta.y())
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._pan_active = False
+            self.setCursor(Qt.CursorShape.ArrowCursor)
+        else:
+            super().mouseReleaseEvent(event)
 
 
 # =============================================================================
@@ -109,59 +159,140 @@ class PolygonSelectionDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Polygon Selection")
         self.setMinimumSize(800, 600)
-        self.frame           = frame
-        self.points          = []
-        self.inside          = True
+        self.frame            = frame
+        self.points           = []    # área atual sendo desenhada
+        self.confirmed_areas  = []    # lista de polígonos já confirmados
+        self.inside           = True
         self.selection_width  = frame.shape[1]
         self.selection_height = frame.shape[0]
         self.setModal(True)
         self._init_ui()
 
     def _init_ui(self):
-        layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(
-            "Click to add polygon points (min 4). "
-            "Right-click to remove last. Confirm when done."))
+        lay = QVBoxLayout(self)
 
-        zoom_row = QHBoxLayout()
-        self.zoom_slider = QSlider(Qt.Orientation.Horizontal)
-        self.zoom_slider.setMinimum(10)
-        self.zoom_slider.setMaximum(300)
-        self.zoom_slider.setValue(100)
-        self.zoom_slider.valueChanged.connect(self._on_zoom)
-        btn_minus = QPushButton("-")
-        btn_minus.setFixedWidth(32)
-        btn_minus.clicked.connect(
-            lambda: self.zoom_slider.setValue(
-                max(self.zoom_slider.value() - 10, self.zoom_slider.minimum())))
-        btn_plus = QPushButton("+")
-        btn_plus.setFixedWidth(32)
-        btn_plus.clicked.connect(
-            lambda: self.zoom_slider.setValue(
-                min(self.zoom_slider.value() + 10, self.zoom_slider.maximum())))
-        zoom_row.addWidget(QLabel("Zoom:"))
-        zoom_row.addWidget(btn_minus)
-        zoom_row.addWidget(self.zoom_slider)
-        zoom_row.addWidget(btn_plus)
-        layout.addLayout(zoom_row)
+        self.lbl_hint = QLabel(
+            "Clique para adicionar pontos (mín. 4). "
+            "Clique direito remove o último. "
+            "Scroll = zoom, Scroll-click + arrastar = pan."
+        )
+        self.lbl_hint.setWordWrap(True)
+        lay.addWidget(self.lbl_hint)
 
-        self.graphics = PolygonGraphics(self.frame, self.points, self)
-        layout.addWidget(self.graphics)
+        self.scene = QGraphicsScene()
+        self.view  = InteractiveFrameView()
+        self.view.setScene(self.scene)
+        self.view.setMinimumSize(800, 500)
+
+        rgb  = cv2.cvtColor(self.frame, cv2.COLOR_BGR2RGB)
+        h, w, ch = rgb.shape
+        qimg = QImage(rgb.data, w, h, ch * w, QImage.Format.Format_RGB888)
+        self.pixmap = QPixmap.fromImage(qimg)
+        self.scene.addPixmap(self.pixmap)
+        self.view.fitInView(self.scene.sceneRect(),
+                            Qt.AspectRatioMode.KeepAspectRatio)
+        lay.addWidget(self.view, stretch=1)
+
+        self._area_items   = []
+        self._current_item = None
+
+        bar = QHBoxLayout()
+        self.lbl_count = QLabel("0 ponto(s) — 0 área(s) confirmada(s)")
+        bar.addWidget(self.lbl_count, stretch=1)
+
+        btn_confirm_area = QPushButton("✓ Confirmar Área")
+        btn_confirm_area.setToolTip("Confirma a área atual e permite desenhar outra")
+        btn_confirm_area.clicked.connect(self._confirm_area)
+        bar.addWidget(btn_confirm_area)
+
+        btn_reset_current = QPushButton("↺ Resetar Atual")
+        btn_reset_current.clicked.connect(self._reset_current)
+        bar.addWidget(btn_reset_current)
+
+        btn_reset_all = QPushButton("✕ Limpar Tudo")
+        btn_reset_all.clicked.connect(self._reset_all)
+        bar.addWidget(btn_reset_all)
+
+        lay.addLayout(bar)
 
         btns = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok |
             QDialogButtonBox.StandardButton.Cancel)
-        btns.accepted.connect(self.accept)
+        btns.accepted.connect(self._on_accept)
         btns.rejected.connect(self.reject)
-        layout.addWidget(btns)
+        lay.addWidget(btns)
 
-    def _on_zoom(self, value):
-        self.graphics.set_zoom(value / 100.0)
+        self.scene.mousePressEvent = self._on_scene_click
 
-    def exec(self):
-        result = super().exec()
-        self.points = self.graphics.points
-        return result
+    def _on_scene_click(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.points.append((event.scenePos().x(), event.scenePos().y()))
+            self._redraw_current()
+        elif event.button() == Qt.MouseButton.RightButton and self.points:
+            self.points.pop()
+            self._redraw_current()
+
+    def _redraw_current(self):
+        if self._current_item:
+            self.scene.removeItem(self._current_item)
+            self._current_item = None
+        if len(self.points) >= 2:
+            poly = QPolygonF([QPointF(x, y) for x, y in self.points])
+            self._current_item = QGraphicsPolygonItem(poly)
+            self._current_item.setPen(QPen(QColor("#FF4560"), 2))
+            self._current_item.setBrush(QColor(255, 69, 96, 40))
+            self.scene.addItem(self._current_item)
+        total = len(self.confirmed_areas)
+        self.lbl_count.setText(
+            f"{len(self.points)} ponto(s) atual — {total} área(s) confirmada(s)")
+
+    def _confirm_area(self):
+        if len(self.points) < 4:
+            QMessageBox.warning(self, "Pontos insuficientes",
+                                "Selecione pelo menos 4 pontos para confirmar a área.")
+            return
+        if self._current_item:
+            self.scene.removeItem(self._current_item)
+            self._current_item = None
+        poly = QPolygonF([QPointF(x, y) for x, y in self.points])
+        item = QGraphicsPolygonItem(poly)
+        item.setPen(QPen(QColor("#0A2463"), 2))
+        item.setBrush(QColor(10, 36, 99, 50))
+        self.scene.addItem(item)
+        self._area_items.append(item)
+        self.confirmed_areas.append(self.points.copy())
+        self.points = []
+        self._current_item = None
+        self.lbl_count.setText(
+            f"0 ponto(s) atual — {len(self.confirmed_areas)} área(s) confirmada(s)")
+
+    def _reset_current(self):
+        self.points.clear()
+        if self._current_item:
+            self.scene.removeItem(self._current_item)
+            self._current_item = None
+        self.lbl_count.setText(
+            f"0 ponto(s) atual — {len(self.confirmed_areas)} área(s) confirmada(s)")
+
+    def _reset_all(self):
+        self._reset_current()
+        for item in self._area_items:
+            self.scene.removeItem(item)
+        self._area_items.clear()
+        self.confirmed_areas.clear()
+        self.lbl_count.setText("0 ponto(s) — 0 área(s) confirmada(s)")
+
+    def _on_accept(self):
+        if len(self.points) >= 4:
+            self._confirm_area()
+        if not self.confirmed_areas:
+            QMessageBox.warning(self, "Sem áreas",
+                                "Confirme pelo menos uma área antes de OK.")
+            return
+        self.points = self.confirmed_areas[0]
+        self.selection_width  = int(self.pixmap.width())
+        self.selection_height = int(self.pixmap.height())
+        self.accept()
 
 
 # =============================================================================
@@ -470,12 +601,13 @@ class EditVideoWindow(QMainWindow):
         poly_dlg        = PolygonSelectionDialog(frame, self)
         poly_dlg.inside = (mode == "inside")
         if (poly_dlg.exec() == QDialog.DialogCode.Accepted
-                and len(poly_dlg.points) >= 4):
-            self.paint_mode   = mode
-            self.paint_points = poly_dlg.points
-            self.paint_selection_size = (poly_dlg.selection_width,
-                                         poly_dlg.selection_height)
-            self._apply_paint()
+                and poly_dlg.confirmed_areas):
+            for area_points in poly_dlg.confirmed_areas:
+                self.paint_mode   = mode
+                self.paint_points = area_points
+                self.paint_selection_size = (poly_dlg.selection_width,
+                                             poly_dlg.selection_height)
+                self._apply_paint()
 
     def _apply_paint(self):
         applied_range = (
@@ -645,4 +777,5 @@ class EditVideoManager(QObject):
             video_path=video_path,
             project_path=project_path,
         )
+        self._window.video_saved.connect(self._videos_manager.refreshVideos)
         self._window.show()

@@ -347,6 +347,33 @@ Item {
                         value:       "0.80"
                     }
 
+                    FieldLabel { text: "Max Cos Distance — StrongSORT ReID tolerance (lower = stricter)" }
+                    NumberField {
+                        id: maxCosDistField
+                        theme:       root.theme
+                        width:       parent.width
+                        placeholder: "0.40"
+                        value:       "0.40"
+                    }
+
+                    FieldLabel { text: "N Init — frames to confirm new ID (1 = faster, 3 = safer)" }
+                    NumberField {
+                        id: nInitField
+                        theme:       root.theme
+                        width:       parent.width
+                        placeholder: "1"
+                        value:       "1"
+                    }
+
+                    FieldLabel { text: "Image Size — resolução interna do YOLO (640=padrão, 1280=melhor para 4K)" }
+                    NumberField {
+                        id: imgszField
+                        theme:       root.theme
+                        width:       parent.width
+                        placeholder: "1280"
+                        value:       "1280"
+                    }
+
                     FieldLabel { text: "Classes to Track (comma-separated IDs, empty = all)" }
                     NumberField {
                         id: classesField
@@ -537,12 +564,17 @@ Item {
             activeVideoPath,
             modelCombo.currentText,
             trackerCombo.currentText,
-            parseFloat(confField.value)   || 0.15,
-            parseFloat(iouField.value)    || 0.50,
+            parseFloat(confField.value)        || 0.15,
+            parseFloat(iouField.value)         || 0.50,
             deviceCombo.currentText,
-            parseInt(strideField.value)   || 1,
+            parseInt(strideField.value)        || 1,
             coordCombo.currentText,
-            _parseClasses()
+            _parseClasses(),
+            parseInt(trackBufferField.value)   || 120,
+            parseFloat(matchThreshField.value) || 0.60,
+            parseFloat(maxCosDistField.value)  || 0.40,
+            parseInt(nInitField.value)         || 1,
+            parseInt(imgszField.value)         || 1280
         )
     }
 

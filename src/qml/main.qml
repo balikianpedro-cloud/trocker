@@ -71,31 +71,17 @@ Window {
                 theme: theme
             }
 
-            // 5 — Reports (placeholder)
-            Item {
-                Column {
-                    anchors.centerIn: parent
-                    spacing: 8
-                    Text {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text:               "Reports"
-                        font.family:        theme.fontDisplay
-                        font.weight:        Font.Normal
-                        font.pixelSize:     56
-                        font.letterSpacing: 2
-                        color:              theme.textPrimary
-                    }
-                    Text {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text:           "content area"
-                        font.family:    theme.fontBody
-                        font.pixelSize: 12
-                        color:          theme.textMuted
-                    }
-                }
+            // 5 — Reports
+            ReportsPage {
+                theme: theme
             }
 
-            // 6 — Settings (placeholder)
+            // 6 — Athletes
+            AthletesPage {
+                theme: theme
+            }
+
+            // 7 — Settings (placeholder)
             Item {
                 Column {
                     anchors.centerIn: parent

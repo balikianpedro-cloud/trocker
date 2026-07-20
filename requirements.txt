@@ -1,0 +1,22 @@
+# Trocker — requirements.txt
+# IMPORTANTE: instale o PyTorch ANTES de rodar este arquivo
+# RTX 3060 / CUDA 12.1:
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+
+# Interface
+PySide6>=6.6.0
+
+# Visão computacional e vídeo
+opencv-python>=4.8.0
+
+# Detecção e tracking
+ultralytics>=8.3.0
+boxmot>=10.0.0
+
+# Dados e cálculos
+numpy>=1.24.0
+pandas>=2.0.0
+scipy>=1.11.0
+
+# Gráficos
+matplotlib>=3.7.0

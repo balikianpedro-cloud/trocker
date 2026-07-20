@@ -9,12 +9,13 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QSlider, QFileDialog, QMessageBox, QGraphicsView, QGraphicsScene,
     QApplication, QDialog, QButtonGroup, QRadioButton, QGraphicsRectItem,
-    QGraphicsTextItem, QSpinBox
+    QGraphicsTextItem, QSpinBox, QLineEdit
 )
 from PySide6.QtCore import Qt, QRectF, QPointF, Signal, QTimer
 from PySide6.QtGui import QPixmap, QImage, QPainter, QColor, QPen, QFont, QBrush
 
 from .reid import run_reid, _DARK_SS
+from .player_io import players_json_path, load_player_names, save_player_names
 
 
 # =============================================================================
@@ -230,7 +231,7 @@ class GetPixelCoordWindow(QMainWindow):
             ("btn_cycle_up",     "Marker ↑",      "Next marker (Tab)",                   "",        self.cycle_marker),
             ("btn_cycle_down",   "Marker ↓",      "Prev marker (Shift+Tab)",             "",        self.cycle_marker_down),
             ("btn_save_csv",     "Save",          "",                                     "success", self.save_csv),
-            ("btn_edit_teams",   "Edit Teams",    "Open Team Manager",                    "",        self.open_team_manager),
+            ("btn_edit_names",   "Edit Names",    "Renomear markers",                     "",        self.open_name_editor),
             ("btn_help",         "Help",          "",                                     "",        self.show_help),
         ]:
             btn = QPushButton(label)
@@ -248,18 +249,6 @@ class GetPixelCoordWindow(QMainWindow):
         self.btn_play.setProperty("role", "primary")
         self.btn_play.clicked.connect(self.toggle_play)
         controls.addWidget(self.btn_play)
-
-        speed_lbl = QLabel("Speed:")
-        speed_lbl.setStyleSheet("color: #6868A0; font-size: 11px; margin-left: 6px;")
-        controls.addWidget(speed_lbl)
-
-        self.speed_spin = QSpinBox()
-        self.speed_spin.setRange(1, 60)
-        self.speed_spin.setValue(10)
-        self.speed_spin.setSuffix(" fps")
-        self.speed_spin.setFixedWidth(80)
-        self.speed_spin.valueChanged.connect(self._update_play_speed)
-        controls.addWidget(self.speed_spin)
 
         main_layout.addWidget(toolbar)
 
@@ -404,6 +393,7 @@ class GetPixelCoordWindow(QMainWindow):
             self.csv_status_label.setText(f"CSV loaded: {os.path.basename(path)}")
             self.csv_status_label.setStyleSheet("color: #2DD480; font-weight: bold; font-size: 11px;")
             self._update_video_frame()
+            self._load_player_names()
 
         except Exception as e:
             msg = f"Failed to load CSV: {e}"
@@ -444,6 +434,19 @@ class GetPixelCoordWindow(QMainWindow):
                 ]
         except Exception as e:
             print(f"Warning: could not load bounding box CSV: {e}")
+
+    # ── Player names ──────────────────────────────────────────────────────────
+
+    def _players_json_path(self):
+        return players_json_path(self.project_path, self.video_path)
+
+    def _load_player_names(self):
+        names = load_player_names(self.project_path, self.video_path)
+        if names:
+            self.player_names = names
+
+    def _save_player_names(self):
+        save_player_names(self.project_path, self.video_path, self.player_names)
 
     # ── ReID integration ──────────────────────────────────────────────────────
 
@@ -617,8 +620,8 @@ class GetPixelCoordWindow(QMainWindow):
         if not self.cap or not self.cap.isOpened():
             return
 
-        # Captura centro do zoom atual antes de limpar a cena
-        if self.zoom_center is None and self.graphics_scene.items():
+        # Preserva pan entre frames
+        if self.graphics_scene.items():
             self.zoom_center = self.graphics_view.mapToScene(
                 self.graphics_view.viewport().rect().center())
 
@@ -656,8 +659,9 @@ class GetPixelCoordWindow(QMainWindow):
                 painter.drawEllipse(QPointF(x, y), 4, 4)
 
             # Label do marker
-            label = str(self.marker_numbers[idx]) if (
-                self.marker_numbers and idx < len(self.marker_numbers)) else str(idx + 1)
+            mid = self.marker_numbers[idx] if (
+                self.marker_numbers and idx < len(self.marker_numbers)) else idx + 1
+            label = self.player_names.get(mid, str(mid))
             painter.setFont(QFont("Arial", 14, QFont.Weight.Bold))
             # Sombra do texto
             painter.setPen(QPen(QColor(0, 0, 0)))
@@ -699,20 +703,22 @@ class GetPixelCoordWindow(QMainWindow):
         n_val = self.marker_numbers[self.selected_marker] if (
             self.marker_numbers and 0 <= self.selected_marker < len(self.marker_numbers)
         ) else self.selected_marker + 1
-        self.hud_marker_label.setText(f"Marker  {n_val}")
+        display_name = self.player_names.get(n_val, f"Marker {n_val}")
+        self.hud_marker_label.setText(display_name)
         self.hud_sub_label.setText(
-            f"{self.selected_marker + 1} / {self.marker_count}  —  Tab to cycle")
+            f"ID {n_val}  ·  {self.selected_marker + 1} / {self.marker_count}  —  Tab to cycle")
 
     def _apply_zoom(self, zoom_level, center=None):
         if not self.graphics_scene.items():
             return
-        self.graphics_view.resetTransform()
-        if center is None:
-            center = self.graphics_view.mapToScene(
-                self.graphics_view.viewport().rect().center())
-        if zoom_level != 1.0:
-            self.graphics_view.scale(zoom_level, zoom_level)
-        self.graphics_view.centerOn(center)
+        # Only re-apply transform when zoom level actually changed — avoids visual jump each frame
+        current_scale = self.graphics_view.transform().m11()
+        if abs(current_scale - zoom_level) > 0.001:
+            self.graphics_view.resetTransform()
+            if zoom_level != 1.0:
+                self.graphics_view.scale(zoom_level, zoom_level)
+        if center is not None:
+            self.graphics_view.centerOn(center)
 
     # ── Navigation & markers ──────────────────────────────────────────────────
 
@@ -742,9 +748,14 @@ class GetPixelCoordWindow(QMainWindow):
             self._play_timer.stop()
             self.btn_play.setText("▶ Play")
 
+    def _set_speed(self, multiplier: float, clicked_btn):
+        self._speed_multiplier = multiplier
+        for btn in self._speed_btns:
+            btn.setChecked(btn is clicked_btn)
+        self._update_play_speed()
+
     def _update_play_speed(self):
-        fps = self.speed_spin.value()
-        interval = max(1, int(1000 / fps))
+        interval = max(1, int(1000 / self.fps)) if self.fps > 0 else 33
         self._play_timer.setInterval(interval)
 
     def _play_tick(self):
@@ -752,7 +763,6 @@ class GetPixelCoordWindow(QMainWindow):
             self.current_frame += 1
             self._update_video_frame()
         else:
-            # chegou no final, para
             self.toggle_play()
 
     def eventFilter(self, obj, event):
@@ -937,25 +947,80 @@ class GetPixelCoordWindow(QMainWindow):
             ]
         self.bboxes = new_bboxes
 
-    # ── Team manager ──────────────────────────────────────────────────────────
+    # ── Name editor ───────────────────────────────────────────────────────────
 
-    def open_team_manager(self):
-        if not self.project_path or not self.video_path:
-            QMessageBox.warning(self, "No Project", "No project or video loaded.")
+    def open_name_editor(self):
+        """Diálogo para editar o nome de cada marker."""
+        if not self.marker_numbers:
+            QMessageBox.warning(self, "No Markers", "Load a CSV first.")
             return
-        try:
-            from modules.create_team import run_team_manager
-            result = run_team_manager(
-                project_path=self.project_path,
-                video_path=self.video_path,
-                parent=self,
-            )
-            if result == 1:
-                QMessageBox.information(self, "Success", "Team management completed!")
-        except ImportError as e:
-            QMessageBox.critical(self, "Error", f"Could not load team manager: {e}")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to open team manager: {e}")
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Edit Player Names")
+        dlg.setMinimumWidth(360)
+        dlg.setStyleSheet("""
+            QWidget { background-color: #0D0D14; color: #EEEEF8; }
+            QLineEdit {
+                background-color: #1D1D2C; color: #EEEEF8;
+                border: 1px solid #303050; border-radius: 6px;
+                padding: 6px 10px;
+            }
+            QLineEdit:focus { border-color: #4282FF; }
+            QPushButton {
+                background-color: #1D1D2C; color: #A0A0C0;
+                border: 1px solid #222230; border-radius: 6px; padding: 6px 14px;
+            }
+            QPushButton:hover { background-color: #242438; color: #EEEEF8; }
+            QPushButton[role="primary"] {
+                background-color: #4282FF; color: #fff; border-color: transparent;
+                font-weight: bold;
+            }
+            QPushButton[role="primary"]:hover { background-color: #6098FF; }
+        """)
+        layout = QVBoxLayout(dlg)
+        layout.setSpacing(8)
+        layout.setContentsMargins(16, 16, 16, 16)
+
+        title = QLabel("Defina um nome para cada marker:")
+        title.setStyleSheet("color: #EEEEF8; font-weight: bold; margin-bottom: 4px;")
+        layout.addWidget(title)
+
+        fields = {}
+        for mid in self.marker_numbers:
+            row = QHBoxLayout()
+            lbl = QLabel(f"Marker {mid}:")
+            lbl.setFixedWidth(80)
+            lbl.setStyleSheet("color: #A0A0C0;")
+            field = QLineEdit()
+            field.setPlaceholderText(f"p{mid}")
+            field.setText(self.player_names.get(mid, ""))
+            row.addWidget(lbl)
+            row.addWidget(field)
+            layout.addLayout(row)
+            fields[mid] = field
+
+        layout.addSpacing(8)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_cancel = QPushButton("Cancelar")
+        btn_save   = QPushButton("Salvar")
+        btn_save.setProperty("role", "primary")
+        btn_cancel.clicked.connect(dlg.reject)
+        btn_save.clicked.connect(dlg.accept)
+        btn_row.addWidget(btn_cancel)
+        btn_row.addWidget(btn_save)
+        layout.addLayout(btn_row)
+
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            for mid, field in fields.items():
+                name = field.text().strip()
+                if name:
+                    self.player_names[mid] = name
+                else:
+                    self.player_names.pop(mid, None)
+            self._save_player_names()
+            self._update_video_frame()
+            self._update_hud_label()
 
     # ── Help ─────────────────────────────────────────────────────────────────
 

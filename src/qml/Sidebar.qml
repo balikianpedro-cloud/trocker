@@ -26,6 +26,7 @@ Item {
         { label: "Pixel Data", icon: "⌖" },
         { label: "Homography", icon: "⌗" },
         { label: "Reports",    icon: "▤" },
+        { label: "Athletes",   icon: "◉" },
         { label: "Settings",   icon: "⚙" }
     ]
 

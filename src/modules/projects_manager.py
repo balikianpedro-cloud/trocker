@@ -21,10 +21,19 @@ class ProjectsManager(QObject):
             if not os.path.isdir(path):
                 continue
             video_exts = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
+
+            # Conta vídeos na raiz E na subpasta videos/
             video_count = sum(
                 1 for f in os.listdir(path)
                 if os.path.splitext(f)[1].lower() in video_exts
             )
+            videos_subdir = os.path.join(path, "videos")
+            if os.path.isdir(videos_subdir):
+                video_count += sum(
+                    1 for f in os.listdir(videos_subdir)
+                    if os.path.splitext(f)[1].lower() in video_exts
+                )
+
             mtime = os.path.getmtime(path)
             date_str = datetime.fromtimestamp(mtime).strftime("%d/%m/%Y")
             result.append({

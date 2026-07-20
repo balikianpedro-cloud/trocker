@@ -36,6 +36,8 @@ class _Worker(QThread):
             )
             self.finished.emit(result)
         except Exception as exc:
+            import traceback
+            traceback.print_exc()
             self.failed.emit(str(exc))
 
 
@@ -73,10 +75,12 @@ class TrackerWorker(QObject):
         return self._running
 
     # ── Slots (callable from QML) ────────────────────────────────────────────
-    @Slot(str, str, str, float, float, str, int, str, "QVariantList")
+    @Slot(str, str, str, float, float, str, int, str, "QVariantList", int, float, float, int, int)
     def start(self, video_path: str, model_name: str, tracker_name: str,
               conf: float, iou: float, device: str, vid_stride: int,
-              coord_type: str, classes: list):
+              coord_type: str, classes: list, track_buffer: int,
+              match_thresh: float, max_cos_dist: float, n_init: int,
+              imgsz: int):
         if self._running:
             return
 
@@ -98,9 +102,17 @@ class TrackerWorker(QObject):
             "vid_stride":   vid_stride,
             "coord_type":   coord_type,
             "classes":      [int(c) for c in classes] if classes else [],
+            "imgsz":        imgsz,
         }
 
-        self._thread = _Worker(config=config, advanced_params={})
+        advanced_params = {
+            "track_buffer": track_buffer,
+            "match_thresh": match_thresh,
+            "max_cos_dist": max_cos_dist,
+            "n_init":       n_init,
+        }
+
+        self._thread = _Worker(config=config, advanced_params=advanced_params)
         self._thread.progressChanged.connect(self._on_progress)
         self._thread.statusChanged.connect(self._on_status)
         self._thread.finished.connect(self._on_finished)

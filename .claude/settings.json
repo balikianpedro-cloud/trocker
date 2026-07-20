@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(trocker/Scripts/python.exe -m py_compile src/modules/tracker_engine.py)",
+      "Bash(trocker/Scripts/python.exe -m py_compile src/modules/tracker_worker.py)",
+      "Bash(trocker/Scripts/python.exe -c \"import ast; ast.parse\\(open\\(''src/modules/tracker_engine.py''\\).read\\(\\)\\); print\\(''OK''\\)\")",
+      "Bash(trocker/Scripts/python.exe -m py_compile src/modules/videos_manager.py)",
+      "Bash(trocker/Scripts/python.exe -m py_compile src/modules/homography_module.py)",
+      "Bash(trocker/Scripts/python.exe -m py_compile src/modules/reports.py)",
+      "Bash(trocker/Scripts/python.exe -c \"import inspect; from boxmot.trackers.strongsort.strongsort import StrongSort; [print\\(f''{n} = {p.default}''\\) for n, p in inspect.signature\\(StrongSort.__init__\\).parameters.items\\(\\) if n != ''self'']\")",
+      "Bash(trocker/Scripts/python.exe -c \":*)",
+      "Bash(git add:*)",
+      "Bash(trocker/Scripts/python.exe -m py_compile src/modules/trigger_zone.py)",
+      "Bash(trocker/Scripts/python.exe -m py_compile src/modules/edit_video.py)",
+      "Bash(trocker/Scripts/python.exe -m py_compile src/modules/player_io.py)",
+      "Bash(trocker/Scripts/python.exe -m py_compile src/modules/reports_plots.py)",
+      "Bash(trocker/Scripts/python.exe -m py_compile src/modules/reports_metrics.py)",
+      "Bash(trocker/Scripts/python.exe -m py_compile src/modules/athlete_manager.py)",
+      "Bash(git -C /c/Users/mateo/Desktop/trocker status)",
+      "Bash(git -C /c/Users/mateo/Desktop/trocker diff --stat)",
+      "Bash(git -C /c/Users/mateo/Desktop/trocker log --oneline -3)",
+      "Bash(git -C:*)",
+      "Bash(trocker/Scripts/python.exe -m py_compile src/modules/reports_plots.py src/modules/reports_metrics.py src/modules/player_io.py)",
+      "Read(//c/Users/mateo/.claude/projects/c--Users-mateo-Desktop-trocker/279fc445-7357-4454-88c6-9d9c1cf3ea9a/subagents/**)",
+      "Bash(python -c \":*)",
+      "Bash(trocker/Scripts/python.exe -m py_compile src/modules/reid.py src/modules/player_io.py src/modules/videos_manager.py src/modules/reports_metrics.py)",
+      "Bash(trocker/Scripts/python.exe -m py_compile src/modules/reid.py src/modules/player_io.py src/modules/videos_manager.py src/modules/reports_metrics.py src/modules/reports_plots.py)",
+      "Bash(trocker/Scripts/python.exe -m py_compile src/modules/edit_video.py src/modules/getpixelcoord.py src/modules/reid.py)",
+      "Bash(trocker/Scripts/python.exe -m py_compile src/modules/getpixelcoord.py src/modules/reid.py)"
+    ]
+  }
+}

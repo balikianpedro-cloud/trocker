@@ -314,6 +314,135 @@ Item {
 
             Item { width: 1; height: 12 }
 
+            // ── Trigger Zone card ─────────────────────────────────────────────
+            Rectangle {
+                width:  parent.width
+                height: 100
+                radius: 12
+                color:  theme.surface
+                border.color: theme.border
+                border.width: 1
+                opacity: hasActiveVideo ? 1.0 : 0.45
+                Behavior on opacity { NumberAnimation { duration: 150 } }
+
+                Row {
+                    anchors.left:           parent.left
+                    anchors.leftMargin:     20
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 16
+
+                    Rectangle {
+                        width: 40; height: 40; radius: 10
+                        color: Qt.rgba(255/255, 152/255, 48/255, 0.12)
+                        anchors.verticalCenter: parent.verticalCenter
+                        Text { anchors.centerIn: parent; text: "📍"; font.pixelSize: 18 }
+                    }
+
+                    Column {
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 6
+
+                        Text {
+                            text: "Trigger Zone"
+                            font.family:    theme.fontBody
+                            font.pixelSize: 13
+                            font.weight:    Font.SemiBold
+                            color: theme.textPrimary
+                        }
+
+                        Row {
+                            spacing: 8
+
+                            Rectangle {
+                                width: 130; height: 28; radius: 7
+                                color: definirHov && hasActiveVideo ? theme.surface3 : theme.surface2
+                                border.color: theme.border; border.width: 1
+                                Behavior on color { ColorAnimation { duration: 120 } }
+                                property bool definirHov: false
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "📍 Definir Zona"
+                                    font.family:    theme.fontBody
+                                    font.pixelSize: 10
+                                    font.weight:    Font.Medium
+                                    color: hasActiveVideo ? theme.textPrimary : theme.textMuted
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: hasActiveVideo ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                    onEntered:  parent.definirHov = true
+                                    onExited:   parent.definirHov = false
+                                    onClicked: {
+                                        if (!hasActiveVideo) return
+                                        homographyManager.open_trigger_zone(activeVideoPath, activeProjectPath)
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                width: 130; height: 28; radius: 7
+                                color: aplicarHov && hasActiveVideo ? theme.surface3 : theme.surface2
+                                border.color: theme.border; border.width: 1
+                                Behavior on color { ColorAnimation { duration: 120 } }
+                                property bool aplicarHov: false
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "✂ Aplicar Zona"
+                                    font.family:    theme.fontBody
+                                    font.pixelSize: 10
+                                    font.weight:    Font.Medium
+                                    color: hasActiveVideo ? theme.textPrimary : theme.textMuted
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: hasActiveVideo ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                    onEntered:  parent.aplicarHov = true
+                                    onExited:   parent.aplicarHov = false
+                                    onClicked: {
+                                        if (!hasActiveVideo) return
+                                        homographyManager.apply_trigger_zone_slot(activeVideoPath, activeProjectPath)
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                width: 130; height: 28; radius: 7
+                                color: verHov && hasActiveVideo ? theme.surface3 : theme.surface2
+                                border.color: theme.border; border.width: 1
+                                Behavior on color { ColorAnimation { duration: 120 } }
+                                property bool verHov: false
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "👁 Ver Zona"
+                                    font.family:    theme.fontBody
+                                    font.pixelSize: 10
+                                    font.weight:    Font.Medium
+                                    color: hasActiveVideo ? theme.textPrimary : theme.textMuted
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: hasActiveVideo ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                    onEntered:  parent.verHov = true
+                                    onExited:   parent.verHov = false
+                                    onClicked: {
+                                        if (!hasActiveVideo) return
+                                        homographyManager.open_zone_viewer(activeVideoPath, activeProjectPath)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Item { width: 1; height: 12 }
+
             // ── Broadcast Camera (em breve) ───────────────────────────────────
             Rectangle {
                 width:  parent.width
