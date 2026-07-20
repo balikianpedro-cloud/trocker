@@ -187,6 +187,73 @@ def validate_homography_points(src_points, dst_points, min_points=4, min_area=1.
     }
 
 # =============================================================================
+# CALIBRATION GATE (reprojection error)
+#
+# See Especificacao_Tecnica_E01-E07_Gate_Calibracao_Trocker.docx, section 2.
+# Thresholds below are engineering proposals, not validated requirements yet —
+# they must be recalibrated against the real-data validation plan before any
+# use outside development (see arquitetura doc, section 20.8).
+# =============================================================================
+
+class CalibrationStatus:
+    VALID = "VALID"
+    REVIEW = "REVIEW"
+    INVALID = "INVALID"
+
+def compute_reprojection_error(h_matrix, src_points, dst_points):
+    """
+    Reprojects src_points (image/pixel) through h_matrix and compares the
+    result to dst_points (world/meters), point by point.
+
+    Returns per-point errors plus mean and max error, in the same units as
+    dst_points (meters, in the DLT calibration flow).
+    """
+    src = np.array(src_points, dtype=np.float64).reshape(-1, 1, 2)
+    projected = cv2.perspectiveTransform(src, np.array(h_matrix, dtype=np.float64))
+    projected = projected.reshape(-1, 2)
+    dst = np.array(dst_points, dtype=np.float64).reshape(-1, 2)
+    per_point_error = np.linalg.norm(projected - dst, axis=1)
+    return {
+        'per_point_error_m': [round(float(e), 4) for e in per_point_error],
+        'mean_error_m': float(np.mean(per_point_error)),
+        'max_error_m': float(np.max(per_point_error)),
+    }
+
+def calibration_gate(mean_error_m, max_error_m,
+                      limit_valid=0.10, limit_review=0.15,
+                      limit_max_valid=0.20, limit_max_review=0.30):
+    """
+    Classifies a calibration as VALID / REVIEW / INVALID based on reprojection
+    error. INVALID must block release of any metric/physiological output
+    downstream (distance, speed, VO2) — the caller is responsible for
+    enforcing that block; this function only classifies.
+    """
+    if mean_error_m > limit_review or max_error_m > limit_max_review:
+        status = CalibrationStatus.INVALID
+        reason = (f"mean_error {mean_error_m:.3f} m > {limit_review} m, or "
+                  f"max_error {max_error_m:.3f} m > {limit_max_review} m")
+    elif mean_error_m > limit_valid or max_error_m > limit_max_valid:
+        status = CalibrationStatus.REVIEW
+        reason = (f"mean_error {mean_error_m:.3f} m in ({limit_valid}, {limit_review}] m, or "
+                  f"max_error {max_error_m:.3f} m in ({limit_max_valid}, {limit_max_review}] m")
+    else:
+        status = CalibrationStatus.VALID
+        reason = f"mean_error {mean_error_m:.3f} m, max_error {max_error_m:.3f} m within limits"
+
+    return {
+        'status': status,
+        'reason': reason,
+        'mean_error_m': round(float(mean_error_m), 4),
+        'max_error_m': round(float(max_error_m), 4),
+        'thresholds_m': {
+            'limit_valid': limit_valid,
+            'limit_review': limit_review,
+            'limit_max_valid': limit_max_valid,
+            'limit_max_review': limit_max_review,
+        },
+    }
+
+# =============================================================================
 # DIALOG AND UI CLASSES
 # =============================================================================
 
@@ -849,6 +916,29 @@ def apply_homography(csv_path, image, output_path_csv, output_path_json, parent=
                 "non_colinear_count": int(validation['non_colinear_count'])
             }
         }
+
+        reproj = compute_reprojection_error(h_matrix, src_points, dst_points)
+        gate = calibration_gate(reproj['mean_error_m'], reproj['max_error_m'])
+        params["reprojection_error"] = reproj
+        params["calibration_gate"] = gate
+
+        if gate['status'] == CalibrationStatus.INVALID:
+            QMessageBox.critical(
+                parent, "Calibration rejected",
+                "Calibration error too high — result blocked.\n\n"
+                f"Mean reprojection error: {gate['mean_error_m']} m\n"
+                f"Max reprojection error: {gate['max_error_m']} m\n\n"
+                "Re-select the reference points (recommended: 6-8 well-distributed points) "
+                "before transforming this video."
+            )
+            return
+        elif gate['status'] == CalibrationStatus.REVIEW:
+            QMessageBox.warning(
+                parent, "Calibration needs review",
+                "Calibration accepted with caveat — result flagged for manual review.\n\n"
+                f"Mean reprojection error: {gate['mean_error_m']} m\n"
+                f"Max reprojection error: {gate['max_error_m']} m"
+            )
     else:
         src_points = result_data
         dst_points = np.array([
@@ -863,9 +953,14 @@ def apply_homography(csv_path, image, output_path_csv, output_path_json, parent=
             "field_length": field_length,
             "field_width": field_width,
             "homography_matrix": h_matrix.tolist(),
-            "mode": "grid"
+            "mode": "grid",
+            "calibration_gate": {
+                "status": "NOT_EVALUATED",
+                "reason": "Grid mode assumes the four field corners as ground truth; "
+                          "there is no independent reference to compute reprojection error against.",
+            },
         }
-        
+
     transformed_frames = []
     for _, row in df.iterrows():
         frame_data = {'frame': int(row['frame'])}
@@ -891,8 +986,14 @@ def apply_homography(csv_path, image, output_path_csv, output_path_json, parent=
         json.dump(params, f)
         
     mode_text = "DLT" if isinstance(result_data, dict) and result_data.get('mode') == 'dlt' else "Grid"
+    gate_line = ""
+    gate_info = params.get("calibration_gate")
+    if gate_info and gate_info.get("status") not in (None, "NOT_EVALUATED"):
+        gate_line = (f"\nCalibration status: {gate_info['status']} "
+                     f"(mean error {gate_info['mean_error_m']} m, max error {gate_info['max_error_m']} m)\n")
     QMessageBox.information(parent, "Transformation completed",
-        f"{mode_text} transformation completed successfully!\n\n"
+        f"{mode_text} transformation completed successfully!\n"
+        f"{gate_line}\n"
         f"Transformed coordinates saved in:\n{output_path_csv}\n\n"
         f"Parameters saved in:\n{output_path_json}")
 
@@ -917,6 +1018,26 @@ def preselected_homography(parent=None, csv_path=None, project_path=None):
             return
             
         h_matrix = np.array(params['homography_matrix'], dtype=np.float32)
+
+        gate_info = params.get("calibration_gate")
+        if gate_info and gate_info.get("status") == CalibrationStatus.INVALID:
+            QMessageBox.critical(
+                parent, "Calibration rejected",
+                "This homography file was marked INVALID by the calibration gate "
+                f"(mean error {gate_info.get('mean_error_m')} m, "
+                f"max error {gate_info.get('max_error_m')} m) and cannot be reused.\n\n"
+                "Redo the calibration with better-distributed reference points."
+            )
+            return
+        elif gate_info and gate_info.get("status") == CalibrationStatus.REVIEW:
+            QMessageBox.warning(
+                parent, "Calibration needs review",
+                "This homography file was flagged REVIEW by the calibration gate "
+                f"(mean error {gate_info.get('mean_error_m')} m, "
+                f"max error {gate_info.get('max_error_m')} m). Proceeding, but treat "
+                "the result with caution."
+            )
+
         df = pd.read_csv(csv_path)
         x_columns = [col for col in df.columns if col.endswith('_x')]
         
