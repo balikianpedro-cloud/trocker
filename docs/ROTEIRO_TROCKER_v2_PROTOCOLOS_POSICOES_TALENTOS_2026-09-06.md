@@ -98,7 +98,6 @@ Ordem de integração sugerida (cada item é uma tela ou um botão no app):
 ## 5. Como rodar tudo no desk HP
 
 Pacote pronto em `00_FERRAMENTAS/veltron-demos/HP_SETUP/` (LEIA-ME_HP.md, setup_hp.ps1, environment_trocker.yml,
-checar_ambiente.py, ajustar_caminhos.py). Sequência: driver NVIDIA → Miniconda → `setup_hp.ps1` → copiar
-`Videos\TROCKER TODOS` (14 GB) → `ajustar_caminhos.py` → `checar_ambiente.py` = PRONTO. Depois, um teste por vez:
+checar_ambiente.py, ajustar_caminhos.py). Sequência: driver NVIDIA → Miniconda → `setup_hp.ps1` → `ajustar_caminhos.py` (os vídeos TROCKER TODOS já chegam pelo OneDrive, em 10_VIDEOS_E_AUDIOS) → `checar_ambiente.py` = PRONTO. Depois, um teste por vez:
 detecção (GPU) → análise (CPU, 1 min) → render (CPU, 5–15 min). Com a GPU do desk sem limitação térmica, um
 Yo-Yo de 7 min deve levar menos de 15 minutos de ponta a ponta.
