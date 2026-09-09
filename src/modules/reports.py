@@ -159,6 +159,12 @@ class ReportsWindow(QMainWindow):
         btn_load = QPushButton("Abrir CSV")
         btn_load.clicked.connect(self._open_csv)
         top_layout.addWidget(btn_load)
+
+        btn_pos = QPushButton("Relatório por posição (xlsx)")
+        btn_pos.setToolTip("Tabela por atleta, resumo por posição, ranking e gráfico.\n"
+                           "Usa nome, idade, sexo, peso e posição do cadastro de atletas.")
+        btn_pos.clicked.connect(self._export_position_report)
+        top_layout.addWidget(btn_pos)
         root.addWidget(top_bar)
 
         # PLAYER CHIPS BAR
@@ -660,6 +666,78 @@ class ReportsWindow(QMainWindow):
     def _refresh(self):
         self._refresh_selected()
 
+    # ── POSITION REPORT EXPORT ────────────────────────────────────────────────
+
+    def _export_position_report(self):
+        """Exports xlsx + png + md grouped by position (see position_report.py)."""
+        if self.df is None or not self.players:
+            QMessageBox.information(
+                self, "Relatório por posição",
+                "Carregue primeiro o CSV de homografia (Homography → Reports).")
+            return
+        cfg = _ask_vo2max_protocol(self)
+        if cfg is None:
+            return
+        grupos = _ask_group_mode(self)
+        if grupos is None:
+            return
+
+        rows = []
+        for mid, p in sorted(self.players.items()):
+            profile = {}
+            if self.athlete_manager:
+                try:
+                    profile = self.athlete_manager.get_athlete_profile(
+                        self.project_path, self.video_path, mid)
+                except Exception:
+                    profile = {}
+            vo2 = calc_vo2max(
+                total_distance_m  = p.total_distance,
+                age               = profile.get("age"),
+                sex               = profile.get("sex"),
+                protocol          = cfg["protocol"],
+                endurance_level   = cfg.get("level"),
+                endurance_shuttle = cfg.get("shuttle"),
+            )
+            speed = np.asarray(p.speed_ms, dtype=float)
+            speed = speed[np.isfinite(speed)]
+            rows.append({
+                "atleta":       mid,
+                "nome":         profile.get("name") or p.name,
+                "posicao":      profile.get("position") or "",
+                "idade":        profile.get("age"),
+                "sexo":         profile.get("sex"),
+                "peso_kg":      profile.get("weight"),
+                "distancia_m":  round(float(p.total_distance)),
+                "tempo_s":      round(float(p.total_time), 1),
+                "vmax_kmh":     round(float(np.percentile(speed, 99)) * 3.6, 1) if speed.size else None,
+                "vo2max_est":   vo2["value"],
+                "sprints":      int(getattr(p, "sprint_count", 0) or 0),
+            })
+        df = pd.DataFrame(rows)
+
+        stem = os.path.splitext(os.path.basename(self.video_path))[0] if self.video_path else "relatorio"
+        base = stem[:-8] if stem.endswith("_tracked") else stem
+        out_dir = os.path.join(self.project_path or os.getcwd(), "reports", f"{base}_por_posicao")
+        label = {"ir1": "Yo-Yo IR1", "ir2": "Yo-Yo IR2", "endurance": "Yo-Yo Endurance"}.get(
+            cfg["protocol"], cfg["protocol"])
+        try:
+            from .position_report import gerar_relatorio
+            gerar_relatorio(df, None, out_dir, grupos=grupos, protocolo=label)
+        except Exception as e:
+            QMessageBox.critical(self, "Relatório por posição", f"Falha ao gerar o relatório:\n{e}")
+            return
+
+        sem_pos = int((df["posicao"].astype(str).str.strip() == "").sum())
+        msg = f"Relatório gerado em:\n{out_dir}\n\nAtletas: {len(df)}  ·  protocolo: {label}  ·  {grupos} grupos"
+        if sem_pos:
+            msg += f"\n\nAtletas sem posição cadastrada: {sem_pos}\n(preencha em Athletes → Posição e exporte de novo)"
+        QMessageBox.information(self, "Relatório por posição", msg)
+        try:
+            os.startfile(out_dir)
+        except Exception:
+            pass
+
     def closeEvent(self, event):
         plt.close("all")
         super().closeEvent(event)
@@ -772,6 +850,43 @@ def _ask_vo2max_protocol(parent):
         "level":    spin_level.value()   if protocol == "endurance" else None,
         "shuttle":  spin_shuttle.value() if protocol == "endurance" else None,
     }
+
+
+def _ask_group_mode(parent):
+    """Diálogo: agrupar posições em 4 grupos (GOL/DEF/MEI/ATA) ou 5 (GOL/ZAG/LAT/MEI/ATA). Retorna "4", "5" ou None."""
+    from PySide6.QtWidgets import (
+        QDialog, QVBoxLayout, QLabel, QRadioButton, QButtonGroup, QDialogButtonBox
+    )
+    dlg = QDialog(parent)
+    dlg.setWindowTitle("Relatório por posição")
+    dlg.setMinimumWidth(380)
+    dlg.setStyleSheet("""
+        QWidget { background-color: #0D0D14; color: #EEEEF8; font-size: 12px; }
+        QLabel { color: #A0A0C0; }
+        QRadioButton { color: #EEEEF8; padding: 6px; }
+        QRadioButton::indicator { width: 16px; height: 16px; border-radius: 8px;
+            border: 2px solid #303050; background: #161621; }
+        QRadioButton::indicator:checked { background: #4282FF; border-color: #4282FF; }
+    """)
+    layout = QVBoxLayout(dlg)
+    layout.setContentsMargins(20, 20, 20, 20)
+    lbl = QLabel("Como agrupar as posições?")
+    lbl.setStyleSheet("color: #EEEEF8; font-weight: bold; font-size: 13px;")
+    layout.addWidget(lbl)
+    group = QButtonGroup(dlg)
+    rb4 = QRadioButton("4 grupos: Goleiros · Defesa · Meio-campo · Ataque")
+    rb5 = QRadioButton("5 grupos: Goleiros · Zagueiros · Laterais · Meias · Atacantes")
+    rb4.setChecked(True)
+    for rb in (rb4, rb5):
+        group.addButton(rb)
+        layout.addWidget(rb)
+    btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+    btns.accepted.connect(dlg.accept)
+    btns.rejected.connect(dlg.reject)
+    layout.addWidget(btns)
+    if dlg.exec() != QDialog.DialogCode.Accepted:
+        return None
+    return "5" if rb5.isChecked() else "4"
 
 
 # =============================================================================

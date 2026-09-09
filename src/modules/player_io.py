@@ -30,16 +30,17 @@ def load_player_data(project_path: str, video_path: str) -> dict:
         for k, v in raw.items():
             mid = int(k)
             if isinstance(v, str):
-                result[mid] = {"name": v, "age": None, "sex": None, "weight": None}
+                result[mid] = {"name": v, "age": None, "sex": None, "weight": None, "position": None}
             elif isinstance(v, dict):
                 result[mid] = {
-                    "name":   v.get("name", f"p{mid}"),
-                    "age":    v.get("age"),
-                    "sex":    v.get("sex"),
-                    "weight": v.get("weight"),
+                    "name":     v.get("name", f"p{mid}"),
+                    "age":      v.get("age"),
+                    "sex":      v.get("sex"),
+                    "weight":   v.get("weight"),
+                    "position": v.get("position"),   # GOL / ZAG / LAT / MEI / ATA
                 }
             else:
-                result[mid] = {"name": f"p{mid}", "age": None, "sex": None, "weight": None}
+                result[mid] = {"name": f"p{mid}", "age": None, "sex": None, "weight": None, "position": None}
         return result
     except Exception:
         return {}
@@ -61,10 +62,11 @@ def save_player_data(project_path: str, video_path: str, data: dict) -> None:
         mid_str = str(int(mid))
         ex = merged.get(mid_str, {})
         merged[mid_str] = {
-            "name":   profile.get("name",   ex.get("name",   f"p{mid}")),
-            "age":    profile.get("age",    ex.get("age")),
-            "sex":    profile.get("sex",    ex.get("sex")),
-            "weight": profile.get("weight", ex.get("weight")),
+            "name":     profile.get("name",     ex.get("name",   f"p{mid}")),
+            "age":      profile.get("age",      ex.get("age")),
+            "sex":      profile.get("sex",      ex.get("sex")),
+            "weight":   profile.get("weight",   ex.get("weight")),
+            "position": profile.get("position", ex.get("position")),
         }
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
@@ -85,9 +87,10 @@ def save_player_names(project_path: str, video_path: str, names: dict) -> None:
         mid_int = int(mid)
         ex = existing.get(mid_int, {})
         merged[mid_int] = {
-            "name":   name,
-            "age":    ex.get("age"),
-            "sex":    ex.get("sex"),
-            "weight": ex.get("weight"),
+            "name":     name,
+            "age":      ex.get("age"),
+            "sex":      ex.get("sex"),
+            "weight":   ex.get("weight"),
+            "position": ex.get("position"),
         }
     save_player_data(project_path, video_path, merged)

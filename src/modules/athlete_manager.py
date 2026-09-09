@@ -48,6 +48,9 @@ QScrollBar::handle:vertical { background: #222230; border-radius: 4px; min-heigh
 QScrollBar::handle:vertical:hover { background: #303050; }
 """
 
+# Position codes shared with position_report.py and the roster CSV (ELENCO)
+POSITIONS = ("GOL", "ZAG", "LAT", "MEI", "ATA")
+
 PLAYER_COLORS = [
     "#2563EB", "#16A34A", "#DC2626", "#D97706",
     "#7C3AED", "#DB2777", "#0891B2", "#65A30D",
@@ -124,6 +127,18 @@ class AthleteAccordionItem(QWidget):
         row_sex.addWidget(self.combo_sex)
         form_layout.addLayout(row_sex)
 
+        # Position (used by the per-position report in Reports)
+        row_pos = QHBoxLayout()
+        row_pos.addWidget(QLabel("Posição:"))
+        self.combo_pos = QComboBox()
+        self.combo_pos.addItems(["—"] + list(POSITIONS))
+        pos_val = profile.get("position")
+        if pos_val in POSITIONS:
+            self.combo_pos.setCurrentText(pos_val)
+        self.combo_pos.setToolTip("GOL goleiro · ZAG zagueiro · LAT lateral · MEI meio-campo · ATA atacante")
+        row_pos.addWidget(self.combo_pos)
+        form_layout.addLayout(row_pos)
+
         # Weight
         row_weight = QHBoxLayout()
         row_weight.addWidget(QLabel("Peso (kg):"))
@@ -156,11 +171,14 @@ class AthleteAccordionItem(QWidget):
         weight = self.spin_weight.value() or None
         sex    = self.combo_sex.currentText()
         sex    = sex if sex in ("M", "F", "Outro") else None
+        pos    = self.combo_pos.currentText()
+        pos    = pos if pos in POSITIONS else None
         return {
-            "name":   self.edit_name.text().strip() or f"p{self.marker_id}",
-            "age":    age,
-            "sex":    sex,
-            "weight": weight,
+            "name":     self.edit_name.text().strip() or f"p{self.marker_id}",
+            "age":      age,
+            "sex":      sex,
+            "weight":   weight,
+            "position": pos,
         }
 
     def update_header_name(self, name: str):
@@ -251,7 +269,7 @@ class AthleteWindow(QMainWindow):
         self._items.clear()
 
         for i, mid in enumerate(sorted(marker_ids)):
-            profile = profiles.get(mid, {"name": f"p{mid}", "age": None, "sex": None, "weight": None})
+            profile = profiles.get(mid, {"name": f"p{mid}", "age": None, "sex": None, "weight": None, "position": None})
             color   = PLAYER_COLORS[i % len(PLAYER_COLORS)]
             widget  = AthleteAccordionItem(mid, profile, color)
             widget.btn_save.clicked.connect(lambda _, m=mid: self._save_one(m))
@@ -330,13 +348,14 @@ class AthleteManager(QObject):
 
     def get_athlete_profile(self, project_path: str, video_path: str,
                             marker_id: int) -> dict:
-        """Returns {"name", "age", "sex", "weight"} for a marker_id (values may be None)."""
+        """Returns {"name", "age", "sex", "weight", "position"} for a marker_id (values may be None)."""
         from .player_io import load_player_data
         data    = load_player_data(project_path, video_path)
         profile = data.get(marker_id, {})
         return {
-            "name":   profile.get("name",   f"p{marker_id}"),
-            "age":    profile.get("age"),
-            "sex":    profile.get("sex"),
-            "weight": profile.get("weight"),
+            "name":     profile.get("name",   f"p{marker_id}"),
+            "age":      profile.get("age"),
+            "sex":      profile.get("sex"),
+            "weight":   profile.get("weight"),
+            "position": profile.get("position"),
         }

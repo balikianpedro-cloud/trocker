@@ -1,7 +1,9 @@
 # Trocker — requirements.txt
 # IMPORTANTE: instale o PyTorch ANTES de rodar este arquivo
-# RTX 3060 / CUDA 12.1:
+# RTX 3060 / CUDA 12.1 (notebook):
 # pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# HP sem GPU NVIDIA (CPU only):
+# pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
 # Interface
 PySide6>=6.6.0
@@ -11,7 +13,7 @@ opencv-python>=4.8.0
 
 # Detecção e tracking
 ultralytics>=8.3.0
-boxmot>=10.0.0
+boxmot>=10.0.0,<14   # 14+ (e o 23) removeram ByteTrack/BotSort/StrongSort do topo do pacote
 
 # Dados e cálculos
 numpy>=1.24.0
